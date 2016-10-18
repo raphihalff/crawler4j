@@ -46,6 +46,7 @@ import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.methods.HttpUriRequest;
 import org.apache.http.config.Registry;
 import org.apache.http.config.RegistryBuilder;
+import org.apache.http.conn.DnsResolver;
 import org.apache.http.conn.socket.ConnectionSocketFactory;
 import org.apache.http.conn.socket.PlainConnectionSocketFactory;
 import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
@@ -55,6 +56,7 @@ import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
+import org.apache.http.impl.conn.SystemDefaultDnsResolver;
 import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.ssl.SSLContexts;
 import org.slf4j.Logger;
@@ -84,7 +86,15 @@ public class PageFetcher extends Configurable {
 
     public PageFetcher(CrawlConfig config) {
         super(config);
+        setup(config, SystemDefaultDnsResolver.INSTANCE);
+    }
 
+    public PageFetcher(CrawlConfig config, DnsResolver resolver) {
+        super(config);
+        setup(config, resolver);
+    }
+
+    private void setup(CrawlConfig config, DnsResolver resolver) {
         RequestConfig requestConfig = RequestConfig.custom()
                                                    .setExpectContinueEnabled(false)
                                                    .setCookieSpec(CookieSpecs.STANDARD)
@@ -116,7 +126,8 @@ public class PageFetcher extends Configurable {
         }
 
         Registry<ConnectionSocketFactory> connRegistry = connRegistryBuilder.build();
-        connectionManager = new PoolingHttpClientConnectionManager(connRegistry);
+        connectionManager = new PoolingHttpClientConnectionManager(connRegistry,
+                                                                   resolver);
         connectionManager.setMaxTotal(config.getMaxTotalConnections());
         connectionManager.setDefaultMaxPerRoute(config.getMaxConnectionsPerHost());
 
