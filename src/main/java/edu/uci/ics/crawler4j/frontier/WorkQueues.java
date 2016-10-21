@@ -39,20 +39,47 @@ public class WorkQueues {
     private final Environment env;
 
     private final boolean resumable;
+    /** Is the queue actually accessed in LIFO order, rather than the default FIFO order? */
+    private final boolean reversed;
 
     private final WebURLTupleBinding webURLBinding;
 
     protected final Object mutex = new Object();
 
-    public WorkQueues(Environment env, String dbName, boolean resumable) {
-        this.env = env;
-        this.resumable = resumable;
+    /**
+     * Create the URL database. The constructors use this function to create {@code urlsDB}.
+     * @return a new URL database
+     */
+    private DatabaseConfig configDB() {
         DatabaseConfig dbConfig = new DatabaseConfig();
         dbConfig.setAllowCreate(true);
         dbConfig.setTransactional(resumable);
         dbConfig.setDeferredWrite(!resumable);
-        urlsDB = env.openDatabase(null, dbName, dbConfig);
+        return dbConfig;
+    }
+
+    public WorkQueues(Environment env, String dbName, boolean resumable) {
+        this.env = env;
+        this.resumable = resumable;
+        urlsDB = env.openDatabase(null, dbName, configDB());
         webURLBinding = new WebURLTupleBinding();
+        reversed = false;
+    }
+
+    /**
+     * Set the environment, create the database, and set if the queue is accessed in LIFO order.
+     * @param env the environment field
+     * @param dbName the name of the database
+     * @param resumable is the database resumable?
+     * @param reversed is the queue accessed in reverse, ie. LIFO order?
+     */
+    public WorkQueues(Environment env, String dbName, boolean resumable,
+                      boolean reversed) {
+        this.env = env;
+        this.resumable = resumable;
+        urlsDB = env.openDatabase(null, dbName, configDB());
+        webURLBinding = new WebURLTupleBinding();
+        this.reversed = reversed;
     }
 
     protected Transaction beginTransaction() {
@@ -76,7 +103,8 @@ public class WorkQueues {
             DatabaseEntry value = new DatabaseEntry();
             Transaction txn = beginTransaction();
             try (Cursor cursor = openCursor(txn)) {
-                OperationStatus result = cursor.getFirst(key, value, null);
+                OperationStatus result = reversed ? cursor.getLast(key, value, null) :
+                                                    cursor.getFirst(key, value, null);
                 int matches = 0;
                 while ((matches < max) && (result == OperationStatus.SUCCESS)) {
                     if (value.getData().length > 0) {
@@ -102,7 +130,8 @@ public class WorkQueues {
                 while ((matches < count) && (result == OperationStatus.SUCCESS)) {
                     cursor.delete();
                     matches++;
-                    result = cursor.getNext(key, value, null);
+                    result = reversed ? cursor.getPrev(key, value, null) :
+                                        cursor.getNext(key, value, null);
                 }
             }
             commit(txn);

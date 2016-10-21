@@ -165,6 +165,16 @@ public class CrawlConfig {
     private List<AuthInfo> authInfos;
 
     /**
+     * Is the crawling schedule in LIFO order, instead of FIFO order?
+     */
+    private boolean scheduleReversed = false;
+
+    /**
+     * The number of pages fetched per crawler iteration
+     */
+    private int batchSize = 50;
+
+    /**
      * Validates the configs specified by this instance.
      *
      * @throws Exception on Validation fail
@@ -502,6 +512,52 @@ public class CrawlConfig {
         this.authInfos = authInfos;
     }
 
+    /**
+     * Set the parameter for setting the schedule in LIFO order,
+     * instead of FIFO.
+     * @param scheduleReversed true if schedule is in LIFO order,
+     *                         false if FIFO
+     */
+    public void setScheduleReversed(boolean scheduleReversed) {
+        this.scheduleReversed = scheduleReversed;
+    }
+
+    /**
+     * Check if the schedule is in LIFO order.
+     * @return true if schedule in is LIFO order, false if FIFO,
+     *         which is the default unless
+     *         {@code scheduleReversed(true)} was called
+     */
+    public boolean isScheduleReversed() {
+        return this.scheduleReversed;
+    }
+
+    /**
+     * Set the number of pages to be fetched in each iteration for crawling.
+     * @param batchSize the number of pages to fetch at each crawling iteration
+     */
+    public void setBatchSize(int batchSize) {
+        this.batchSize = batchSize;
+    }
+
+    /**
+     * Get the number of pages to be fetched in each iteration for crawling.
+     * @return the number of pages to fetch at each crawling iteration
+     */
+    public int getBatchSize() {
+        return batchSize;
+    }
+
+    /**
+     * Check if the crawling schedule resembles that of a stack:
+     * LIFO order, and only one page is crawled each iteration
+     * @return true if the crawling schedule is in stack order
+     */
+    public boolean isStack() {
+        return isScheduleReversed() && (getMaxTotalConnections() == 1) &&
+               (getBatchSize() == 1);
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
@@ -523,6 +579,7 @@ public class CrawlConfig {
         sb.append("Proxy port: " + getProxyPort() + "\n");
         sb.append("Proxy username: " + getProxyUsername() + "\n");
         sb.append("Proxy password: " + getProxyPassword() + "\n");
+        sb.append("Crawl in reverse, ie. depth-first: " + isScheduleReversed() + "\n");
         return sb.toString();
     }
 }

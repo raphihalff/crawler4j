@@ -100,6 +100,13 @@ public class WebCrawler implements Runnable {
     private boolean isWaitingForNewURLs;
 
     /**
+     * If, according to the configuration settings,
+     * the crawler processes pages in stack order,
+     * this stack keeps track of custom state of URLs that should be visited
+     */
+    private CustomStack customStack;
+
+    /**
      * Initializes the current instance of the crawler
      *
      * @param id
@@ -108,14 +115,20 @@ public class WebCrawler implements Runnable {
      *            the controller that manages this crawling session
      */
     public void init(int id, CrawlController crawlController) {
+        CrawlConfig config = crawlController.getConfig();
         this.myId = id;
         this.pageFetcher = crawlController.getPageFetcher();
         this.robotstxtServer = crawlController.getRobotstxtServer();
         this.docIdServer = crawlController.getDocIdServer();
         this.frontier = crawlController.getFrontier();
-        this.parser = new Parser(crawlController.getConfig());
+        this.parser = new Parser(config);
         this.myController = crawlController;
         this.isWaitingForNewURLs = false;
+        if (config.isStack()) {
+            customStack = new CustomStack(config.getMaxDepthOfCrawling());
+        } else {
+            customStack = null;
+        }
     }
 
     /**
@@ -256,9 +269,10 @@ public class WebCrawler implements Runnable {
     public void run() {
         onStart();
         while (true) {
-            List<WebURL> assignedURLs = new ArrayList<>(50);
+            int batchSize = myController.getConfig().getBatchSize();
+            List<WebURL> assignedURLs = new ArrayList<>(batchSize);
             isWaitingForNewURLs = true;
-            frontier.getNextURLs(50, assignedURLs);
+            frontier.getNextURLs(batchSize, assignedURLs);
             isWaitingForNewURLs = false;
             if (assignedURLs.isEmpty()) {
                 if (frontier.isFinished()) {
@@ -285,8 +299,67 @@ public class WebCrawler implements Runnable {
         }
     }
 
+    /*
+     * A {@code VisitDecision} object represents whether to visit a page,
+     * and if so, what custom state to push, if any.
+     */
+    protected class VisitDecision {
+        /** Should the page be visited? */
+        private boolean shouldVisit;
+
+        /**
+         * Construct a default object, with the decision to not visit the page.
+         */
+        public VisitDecision() {
+            shouldVisit = false;
+        }
+
+        /**
+         * Set the decision to visit the page, and the state to push.
+         * @param shouldVisit true iff the page should be visited
+         * @param newState the custom state to push, or null if no custom state should be pushed
+         */
+        public void decide(boolean shouldVisit, CustomStackState newState) {
+            this.shouldVisit = shouldVisit;
+
+            /*
+             * Only push a state if the page is to be visited, there is a stack,
+             * and there is a state.
+             */
+            if (customStack != null && shouldVisit && newState != null) {
+                customStack.push(newState);
+            }
+        }
+
+        /**
+         * Get the decision to visit the page.
+         * @return true iff the page should be visited
+         */
+        public boolean getShouldVisit() {
+            return shouldVisit;
+        }
+    }
+
     /**
-     * Classes that extends WebCrawler should overwrite this function to tell the
+     * Classes that extend WebCrawler and require custom stack state should overwrite
+     * this function to tell the crawler whether the given URL should be crawled or not,
+     * and what custom state, if any, should be pushed.
+     * By default, it calls the version of {@code shouldVisit} below,
+     * which never pushes any custom state.
+     * @param referringPage the Page in which this url was found.
+     * @param url the url which we are interested to know whether it should be
+     *            included in the crawl or not.
+     * @param decision the output space for the decision to visit the page,
+     *                 and the custom state to push
+     */
+    protected void shouldVisit(Page referringPage, WebURL url, CustomStackState oldState,
+                               VisitDecision decision) {
+        decision.decide(shouldVisit(referringPage, url), null);
+    }
+
+    /**
+     * Classes that extend WebCrawler and do not require custom stack state
+     * should overwrite this function to tell the
      * crawler whether the given url should be crawled or not. The following
      * default implementation indicates that all urls should be included in the crawl.
      *
@@ -304,6 +377,21 @@ public class WebCrawler implements Runnable {
     }
 
     /**
+     * Call the protected, stacked version of {@code shouldVisit},
+     * and get the decision to visit the page.
+     * @param referringPage the Page in which this url was found.
+     * @param url the url which we are interested to know whether it should be
+     *            included in the crawl or not.
+     * @param oldState the state that is currently on top of the stack
+     * @return true iff the page should be visited
+     */
+    private boolean shouldVisit(Page referringPage, WebURL url, CustomStackState oldState) {
+        VisitDecision decision = new VisitDecision();
+        shouldVisit(referringPage, url, oldState, decision);
+        return decision.getShouldVisit();
+    }
+
+    /**
      * Classes that extends WebCrawler should overwrite this function to process
      * the content of the fetched and parsed page.
      *
@@ -317,6 +405,10 @@ public class WebCrawler implements Runnable {
 
     private void processPage(WebURL curURL) {
         PageFetchResult fetchResult = null;
+        CustomStackState oldState = null;
+        if (customStack != null) {
+            oldState = customStack.peekOrPop(curURL);
+        }
         try {
             if (curURL == null) {
                 return;
@@ -365,7 +457,7 @@ public class WebCrawler implements Runnable {
                         webURL.setDepth(curURL.getDepth());
                         webURL.setDocid(-1);
                         webURL.setAnchor(curURL.getAnchor());
-                        if (shouldVisit(page, webURL)) {
+                        if (shouldVisit(page, webURL, oldState)) {
                             if (robotstxtServer.allows(webURL)) {
                                 webURL.setDocid(docIdServer.getNewDocID(movedToUrl));
                                 frontier.schedule(webURL);
@@ -423,7 +515,7 @@ public class WebCrawler implements Runnable {
                         webURL.setDocid(-1);
                         webURL.setDepth((short) (curURL.getDepth() + 1));
                         if ((maxCrawlDepth == -1) || (curURL.getDepth() < maxCrawlDepth)) {
-                            if (shouldVisit(page, webURL)) {
+                            if (shouldVisit(page, webURL, oldState)) {
                                 if (robotstxtServer.allows(webURL)) {
                                     webURL.setDocid(docIdServer.getNewDocID(webURL.getURL()));
                                     toSchedule.add(webURL);

@@ -55,7 +55,8 @@ public class Frontier extends Configurable {
         super(config);
         this.counters = new Counters(env, config);
         try {
-            workQueues = new WorkQueues(env, DATABASE_NAME, config.isResumableCrawling());
+            workQueues = new WorkQueues(env, DATABASE_NAME, config.isResumableCrawling(),
+                                        config.isScheduleReversed());
             if (config.isResumableCrawling()) {
                 scheduledPages = counters.getValue(Counters.ReservedCounterNames.SCHEDULED_PAGES);
                 inProcessPages = new InProcessPagesDB(env);
