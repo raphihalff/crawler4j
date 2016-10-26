@@ -549,6 +549,15 @@ public class CrawlConfig {
     }
 
     /**
+     * Make the crawling schedule stack-like.
+     */
+    public void makeStack() {
+        setScheduleReversed(true);
+        setMaxTotalConnections(1);
+        setBatchSize(1);
+    }
+
+    /**
      * Check if the crawling schedule resembles that of a stack:
      * LIFO order, and only one page is crawled each iteration
      * @return true if the crawling schedule is in stack order
